@@ -12,7 +12,7 @@ This gem *does not* require Rails.
 For example, using `bundle`, add this line to your Gemfile.
 
 ```ruby
-gem "keycloak-admin", "1.0.24"
+gem "keycloak-admin", "1.1.3"
 ```
 
 ## Login
@@ -21,7 +21,7 @@ To login on Keycloak's Admin API, you first need to setup a client.
 
 Go to your realm administration page and open `Clients`. Then, click on the `Create` button.
 On the first screen, enter:
-* `Client ID`: _e.g. my-app-admin-client_ 
+* `Client ID`: _e.g. my-app-admin-client_
 * `Client Protocol`: select `openid-connect`
 * `Root URL`: let it blank
 
@@ -45,7 +45,7 @@ The next screen must be configured depending on how you want to authenticate:
 * In this gem's configuration (see Section `Configuration`):
   * Setup `username` and `password` according to your user's configuration
   * Setup `client_id` with your `Client ID` (_e.g. my-app-admin-client_)
-  * If your client is `confidential`, copy its Client Secret to `client_secret` 
+  * If your client is `confidential`, copy its Client Secret to `client_secret`
 
 ### Login with `Direct Access Grants` (Service account)
 
@@ -60,15 +60,15 @@ Using a service account to use the REST Admin API does not require to create a d
   * After saving this client
     * open the `Service Account Roles` and add relevant `realm-management.` client's roles. For instance: `view-users` if you want to search for users using this gem.
     * open the `Credentials` tab and copy the `Client Secret`
-  
+
 * In this gem's configuration  (see Section `Configuration`):
   * Set `use_service_account` to `true`
   * Setup `client_id` with your `Client ID` (_e.g. my-app-admin-client_)
-  * Copy its Client Secret to `client_secret` 
+  * Copy its Client Secret to `client_secret`
 
 ## Configuration
 
-To configure this gem, call `KeycloakAdmin.configure`. 
+To configure this gem, call `KeycloakAdmin.configure`.
 For instance, to configure this gem based on environment variables, write (and load if required) a `keycloak_admin.rb`:
 ```ruby
 KeycloakAdmin.configure do |config|
@@ -80,7 +80,9 @@ KeycloakAdmin.configure do |config|
   config.username            = ENV["KEYCLOAK_ADMIN_USER"]
   config.password            = ENV["KEYCLOAK_ADMIN_PASSWORD"]
   config.logger              = Rails.logger
-  config.rest_client_options = { verify_ssl: OpenSSL::SSL::VERIFY_NONE }
+
+  # You configure RestClient to your liking – see https://github.com/rest-client/rest-client/blob/master/lib/restclient/request.rb for available options.
+  config.rest_client_options = { timeout: 5 }
 end
 ```
 This example is autoloaded in a Rails environment.
@@ -96,14 +98,14 @@ All options have a default value. However, all of them can be changed in your in
 | `client_realm_name` | `""`| String | Required | Name of the realm that contains the admin client. | `master` |
 | `client_id` | `admin-cli`| String | Required | Client that should be used to access admin capabilities. | `api-cli` |
 | `client_secret` | `nil`| String | Optional | If your client is `confidential`, this parameter must be specified. | `4e3c481c-f823-4a6a-b8a7-bf8c86e3eac3` |
-| `use_service_account` | `true` | Boolean | Required | `true` if the connection to the client uses a Service Account. `false` if the connection to the client uses a username/password credential. | `false` | 
+| `use_service_account` | `true` | Boolean | Required | `true` if the connection to the client uses a Service Account. `false` if the connection to the client uses a username/password credential. | `false` |
 | `username` | `nil`| String | Optional | Username to access the Admin REST API. Recommended if `user_service_account` is set to `false`. | `mummy` |
 | `password` | `nil`| String | Optional | Clear password to access the Admin REST API. Recommended if `user_service_account` is set to `false`. | `bobby` |
 | `logger` | `Logger.new(STDOUT)`| Logger | Optional | The logger used by `keycloak-admin` | `Rails.logger` | 
-| `rest_client_options` | `{}`| Hash | Optional | Options to pass to `RestClient` | `{ verify_ssl: OpenSSL::SSL::VERIFY_NONE }` | 
+| `rest_client_options` | `{}`| Hash | Optional | Options to pass to `RestClient` | `{ timeout: 5 }` | 
 
 
-## Use Case
+## Use Cases
 
 ### Supported features
 
@@ -113,13 +115,15 @@ All options have a default value. However, all of them can be changed in your in
 * Reset credentials
 * Impersonate a user
 * Exchange a configurable token
-* Get list of clients
-* Create clients
+* Get list of clients, or find a client by its id or client_id
+* Create, update, and delete clients
 * Get list of groups, create/save a group
 * Get list of roles, save a role
 * Get list of realms, save/update/delete a realm
 * Get list of client role mappings for a user/group
 * Get list of members of a group
+* Get list of groups that have a specific role assigned
+* Get list of realm-roles assigned to a group, add a realm-role to a group
 * Save client role mappings for a user/group
 * Save realm-level role mappings for a user/group
 * Add a Group on a User
@@ -129,6 +133,7 @@ All options have a default value. However, all of them can be changed in your in
 * Link/Unlink users to federated identity provider brokers
 * Execute actions emails
 * Send forgot passsword mail
+* Client Authorization, create, update, get, delete Resource, Scope, Policy, Permission, Policy Enforcer
 
 ### Get an access token
 
@@ -185,9 +190,14 @@ If you want to update its entire entity. To update some specific attributes, pro
 
 ```ruby
 KeycloakAdmin.realm("a_realm").users.update("05c135c6-5ad8-4e17-b1fa-635fc089fd71", {
-  email: "hello@gmail.com"
+  email: "hello@gmail.com",
+  username: "hello",
+  first_name: "Jean",
+  last_name: "Dupond"
 })
 ```
+
+Attention point: Since Keycloak 24.0.4, when updating a user, all the writable profile attributes must be passed, otherwise they will be removed. (https://www.keycloak.org/docs/24.0.4/upgrading/)
 
 ### Delete a user
 
@@ -279,10 +289,26 @@ KeycloakAdmin.realm("a_realm").delete
 
 ### Get list of clients in a realm
 
-Returns an array of `KeycloakAdmin::ClientRepresentation`.
+Returns an array of `KeycloakAdmin::ClientRepresentation` or a single `KeycloakAdmin::ClientRepresentation`
+
+Finding a client by its `client_id` is a somewhat slow operation, as it requires fetching all clients and then filtering. Keycloak's API does not support fetching a client by its `client_id` directly.
 
 ```ruby
 KeycloakAdmin.realm("a_realm").clients.list
+KeycloakAdmin.realm("a_realm").clients.get(id) # id is Keycloak's database id, not the client_id
+KeycloakAdmin.realm("a_realm").clients.find_by_client_id(client_id)
+```
+
+### Updating a client
+
+```ruby
+my_client = KeycloakAdmin.realm("a_realm").clients.get(id)
+
+my_client.name        = "My new client name"
+my_client.description = "This is a new description"
+my_client.redirect_uris << "https://www.example.com/auth/callback"
+
+KeycloakAdmin.realm("a_realm").clients.update(client) # Returns the updated client
 ```
 
 ### Get list of groups in a realm
@@ -349,6 +375,30 @@ You can specify paging with `first` and `max`:
 
 ```ruby
 KeycloakAdmin.realm("a_realm").group("group_id").members(first:0, max:100)
+```
+
+### Get list of groups that have a specific role assigned
+
+Returns an array of `KeycloakAdmin::GroupRepresentation`
+
+```ruby
+KeycloakAdmin.realm("a_realm").roles.list_groups("role_name")
+```
+
+### Get list of realm-roles assigned to a group
+
+Returns an array of `KeycloakAdmin::RoleRepresentation`
+
+```ruby
+KeycloakAdmin.realm("a_realm").groups.get_realm_level_roles("group_id")
+```
+
+### Add a realm-role to a group
+
+Returns added `KeycloakAdmin::RoleRepresentation`
+
+```ruby
+KeycloakAdmin.realm("a_realm").groups.add_realm_level_role_name!("group_id", "role_name")
 ```
 
 ### Get list of roles in a realm
@@ -423,6 +473,271 @@ Returns an array of `KeycloakAdmin::IdentityProviderRepresentation`.
 KeycloakAdmin.realm("a_realm").identity_providers.list
 ```
 
+### Manage [Client Authorization Resources & Scopes](https://www.keycloak.org/docs/latest/authorization_services/index.html#_resource_overview)
+
+In order to use authorization, you need to enable the client's `authorization_services_enabled` attribute.
+
+```ruby
+client_id = "dummy-client"
+client = KeycloakAdmin.realm("realm_a").clients.find_by_client_id(client_id)
+client.authorization_services_enabled = true
+KeycloakAdmin.realm("a_realm").clients.update(client)
+```
+
+### Create a scope
+
+Returns added `KeycloakAdmin::ClientAuthzScopeRepresentation`
+
+```ruby
+KeycloakAdmin.realm("a_realm").authz_scopes(client_id).create!("POST_1", "POST 1 scope description", "http://icon.url")
+````
+
+### Search for scope
+
+Returns array of `KeycloakAdmin::ClientAuthzScopeRepresentation`
+
+```ruby
+KeycloakAdmin.realm("a_realm").authz_scopes(client.id).search("POST")
+```
+
+### Get one scope by its id
+
+Returns `KeycloakAdmin::ClientAuthzScopeRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("a_realm").authz_scopes(client.id).get(scope_id)
+```
+
+### Delete one scope
+
+```ruby
+KeycloakAdmin.realm("a_realm").authz_scopes(client.id).delete(scope.id)
+```
+
+### Create a client authorization resource
+
+note: for scopes, use {name: scope.name} to reference the scope object
+
+Returns added `KeycloakAdmin::ClientAuthzResourceRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("realm_id")
+        .authz_resources(client.id)
+        .create!(
+                "Dummy Resource", 
+                "type", 
+                ["/resource_1/*", "/resource_1/"], 
+                true, 
+                "display_name", 
+                [ {name: scope_1.name} ], 
+                {"attribute": ["value_1", "value_2"]}
+        )
+```
+
+### Update a client authorization resource
+
+Returns updated `KeycloakAdmin::ClientAuthzResourceRepresentation`
+
+note: for scopes, use {name: scope.name} to reference the scope object
+
+```ruby 
+KeycloakAdmin.realm("realm_a")
+        .authz_resources(client.id)
+        .update(resource.id,
+                       {
+                         "name": "Dummy Resource",
+                         "type": "type",
+                         "owner_managed_access": true,
+                         "display_name": "display_name",
+                         "attributes": {"a":["b","c"]},
+                         "uris": [ "/resource_1/*" , "/resource_1/" ],
+                         "scopes":[
+                           {name: scope_1.name},
+                           {name: scope_2.name}
+                         ],
+                         "icon_uri": "https://icon.url"
+                       })
+```
+
+### Find client authorization resources by (name, type, uri, owner, scope)
+
+Returns array of `KeycloakAdmin::ClientAuthzResourceRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_resources(client.id).find_by("Dummy Resource", "", "", "", "")
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_resources(client.id).find_by("", "type", "", "", "")
+```
+
+### Get client authorization resource by its id
+
+Returns `KeycloakAdmin::ClientAuthzResourceRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_resources(client.id).get(resource.id)
+```
+
+### delete a client authorization resource
+
+```ruby
+KeycloakAdmin.realm("realm_a").authz_resources(client.id).delete(resource.id)
+```
+
+### Create a client authorization policy
+
+Note: for the moment only `role` policies are supported.
+
+Returns added `KeycloakAdmin::ClientAuthzPolicyRepresentation`
+
+```ruby 
+ KeycloakAdmin.realm("realm_a")
+        .authz_policies(client.id, 'role')
+        .create!("Policy 1", 
+                 "description", 
+                 "role", 
+                 "POSITIVE", 
+                 "UNANIMOUS", 
+                 true, 
+                 [{id: realm_role.id, required: true}]
+        )
+```
+
+### Find client authorization policies by (name, type)
+
+Returns array of `KeycloakAdmin::ClientAuthzPolicyRepresentation`
+
+```ruby
+KeycloakAdmin.realm("realm_a").authz_policies(client.id, 'role').find_by("Policy 1", "role") 
+```
+
+### Get client authorization policy by its id
+
+Returns `KeycloakAdmin::ClientAuthzPolicyRepresentation`
+
+```ruby
+KeycloakAdmin.realm("realm_a").authz_policies(client.id, 'role').get(policy.id) 
+```
+
+### Delete a client authorization policy
+
+```ruby
+KeycloakAdmin.realm("realm_a").authz_policies(client.id, 'role').delete(policy.id)
+```
+
+### Create a client authorization permission (Resource type)
+
+Returns added `KeycloakAdmin::ClientAuthzPermissionRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("realm_a")
+        .authz_permissions(client.id, :resource)
+        .create!("Dummy Resource Permission", 
+                 "resource description", 
+                 "UNANIMOUS", 
+                 "POSITIVE",
+                 [resource.id], 
+                 [policy.id],
+                 nil, 
+                 ""
+        )
+```
+
+### Create a client authorization permission (Scope type)
+
+Returns added `KeycloakAdmin::ClientAuthzPermissionRepresentation`
+
+```ruby
+KeycloakAdmin.realm("realm_a")
+        .authz_permissions(client.id, :scope)
+        .create!("Dummy Scope Permission", 
+                 "scope description", 
+                 "UNANIMOUS", 
+                 "POSITIVE", 
+                 [resource.id], 
+                 [policy.id], 
+                 [scope_1.id, scope_2.id], 
+                 ""
+        ) 
+```
+
+### List a resource authorization permissions (all: scope or resource)
+
+Return array of `KeycloakAdmin::ClientAuthzPermissionRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "", resource.id).list
+```
+
+### List a resource authorization permissions (by type: resource)
+
+Return array of `KeycloakAdmin::ClientAuthzPermissionRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, 'resource').list
+```
+### List a resource authorization permissions (by type: scope)
+
+Return array of `KeycloakAdmin::ClientAuthzPermissionRepresentation`
+
+```ruby 
+authz_permissions(client.id, 'scope').list.size
+```
+
+### Find client authorization permissions by (name, type, scope)
+
+Return array of `KeycloakAdmin::ClientAuthzPermissionRepresentation`
+
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "resource").find_by(resource_permission.name, nil)
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "resource").find_by(resource_permission.name, nil)
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "resource").find_by(resource_permission.name, resource.id)
+
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "scope").find_by(scope_permission.name, resource.id)
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "scope").find_by(scope_permission.name, resource.id, "POST_1")
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "resource").find_by(nil, resource.id)
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "scope").find_by(nil, resource.id)
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "scope").find_by(nil, resource.id, "POST_1")
+```
+or
+```ruby 
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, "scope").find_by(scope_permission.name, nil)
+```
+
+### Delete a client authorization permission, scope type
+
+```ruby
+KeycloakAdmin.realm("realm_a").authz_permissions(client.id, 'scope').delete(scope.id)
+```
+
+### Delete a client authorization permission, resource type
+
+```ruby
+ KeycloakAdmin.realm("realm_a").authz_permissions(client.id, 'resource').delete(resource_permission.id)
+```
+
 ## How to execute library tests
 
 From the `keycloak-admin-api` directory:
@@ -431,4 +746,3 @@ From the `keycloak-admin-api` directory:
   $ docker build . -t keycloak-admin:test
   $ docker run -v `pwd`:/usr/src/app/ keycloak-admin:test rspec spec
 ```
-

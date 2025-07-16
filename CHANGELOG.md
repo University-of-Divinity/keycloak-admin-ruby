@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2024-07-12
+
+* Client Authorization management support (thanks to @tillawy)
+* GitHub-actions setup to execute `rspec` (thanks to @tillawy)
+
+## [1.1.2] - 2024-05-22
+
+* Add group endpoints (get, children, delete), support for group attributes (thanks to @mkrawc)
+* GroupClient#save method now can update an existing group (thanks to @mkrawc)
+* RoleClient#save method now can update an existing role (thanks to @mkrawc)
+
+## [1.1.1] - 2024-01-21
+
+* Add/List realm-role/s to a group, Allow role-names with spaces, List groups assigned to role (thanks to @LiquidMagical)
+
+## [1.1.0] - 2023-10-03
+
+* Search for groups with parameters (thanks to @@tlloydthwaites)
+* Get client by ID, Find client by Client ID, Update Client (thanks to @gee-forr)
+
 ## [1.0.24] - 2023-06-07
 
 * Revert the modifications on the feature 'Update a User' introduced in `1.0.22`. This implementation had breaking changes such as not being able to update several attributes (`first_name`, `email`, etc).
